@@ -10,8 +10,11 @@ import           DynFlags (dopt_set)
 import           GHC
 #if __GLASGOW_HASKELL__ < 900
 import           DynFlags (gopt_set)
-#else
+#elif __GLASGOW_HASKELL__ < 920
 import           GHC.Driver.Session (gopt_set)
+#else
+-- See https://github.com/ghc/ghc/commit/f7cc431341e5b5b31758eecc8504cae8b2390c10
+import           GHC.Driver.Backend (gopt_set)
 #endif
 #endif
 
@@ -80,7 +83,13 @@ handleStaticFlags flags = return $ map noLoc $ flags
 
 handleDynamicFlags :: GhcMonad m => [Located String] -> m [String]
 handleDynamicFlags flags = do
+#if __GLASGOW_HASKELL__ <= 901
   (dynflags, locSrcs, _) <- (setHaddockMode `fmap` getSessionDynFlags) >>= flip parseDynamicFlags flags
+#else
+  -- See https://github.com/ghc/ghc/commit/8e2f85f6b4662676f0d7addaff9bf2c7d751bb63
+  logger <- getLogger
+  (dynflags, locSrcs, _) <- (setHaddockMode `fmap` getSessionDynFlags) >>= flip (parseDynamicFlags logger) flags
+#endif
   _ <- setSessionDynFlags dynflags
 
   -- We basically do the same thing as `ghc/Main.hs` to distinguish
@@ -97,7 +106,11 @@ setHaddockMode dynflags = (dopt_set dynflags Opt_Haddock) {
 #else
 setHaddockMode dynflags = (gopt_set dynflags Opt_Haddock) {
 #endif
+#if __GLASGOW_HASKELL__ <= 901
       hscTarget = HscNothing
+#else
+      backend = NoBackend
+#endif
     , ghcMode   = CompManager
     , ghcLink   = NoLink
     }

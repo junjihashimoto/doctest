@@ -1,5 +1,5 @@
 name:             doctest
-version:          0.18.1
+version:          0.18.2
 synopsis:         Test interactive Haskell examples
 description: |
   The doctest program checks examples in source code comments.  It is modeled
@@ -26,6 +26,7 @@ tested-with:
 - GHC == 8.8.4
 - GHC == 8.10.4
 - GHC == 9.0.1
+- GHC == 9.2.0
 
 extra-source-files:
 - example/**/*

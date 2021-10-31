@@ -23,20 +23,32 @@ import           MonadUtils (liftIO, MonadIO)
 import           GHC hiding (Module, Located)
 import           DynFlags
 import           MonadUtils (liftIO)
+#elif __GLASGOW_HASKELL__ < 902
+import           GHC hiding (Module, Located)
+import           GHC.Driver.Session
+import           GHC.Utils.Monad (liftIO)
 #else
 import           GHC hiding (Module, Located)
 import           GHC.Driver.Session
+import           GHC.Driver.Backend
+import           GHC.Driver.Env (hsc_dflags)
 import           GHC.Utils.Monad (liftIO)
 #endif
 
 #if __GLASGOW_HASKELL__ < 900
 import           Digraph (flattenSCCs)
 import           Exception (ExceptionMonad)
-#else
+#elif __GLASGOW_HASKELL__ < 902
 import           GHC.Data.Graph.Directed (flattenSCCs)
 import           GHC.Utils.Exception (ExceptionMonad)
 import           Control.Monad.Catch (generalBracket)
+#else
+import           GHC.Data.Graph.Directed (flattenSCCs)
+import           GHC.Unit.Module.Graph (filterToposortToModules)
+import           GHC.Utils.Exception (ExceptionMonad)
+import           Control.Monad.Catch (generalBracket)
 #endif
+
 
 import           System.Directory
 import           System.FilePath
@@ -125,7 +137,11 @@ parse args = withGhc args $ \modules_ -> withTempOutputDir $ do
 
   mods' <- if needsTemplateHaskellOrQQ mods then enableCompilation mods else return mods
 
+#if __GLASGOW_HASKELL__ < 902
   let sortedMods = flattenSCCs (topSortModuleGraph False mods' Nothing)
+#else
+  let sortedMods = flattenSCCs (filterToposortToModules $ topSortModuleGraph False mods' Nothing)
+#endif
   reverse <$> mapM (loadModPlugins >=> parseModule >=> typecheckModule >=> loadModule) sortedMods
   where
     -- copied from Haddock/Interface.hs
@@ -136,8 +152,10 @@ parse args = withGhc args $ \modules_ -> withTempOutputDir $ do
 #elif __GLASGOW_HASKELL__ < 809
       let enableComp d = let platform = targetPlatform d
                          in d { hscTarget = defaultObjectTarget platform }
-#else
+#elif __GLASGOW_HASKELL__ < 902
       let enableComp d = d { hscTarget = defaultObjectTarget d }
+#else
+      let enableComp d = d { backend = platformDefaultBackend (targetPlatform d) }
 #endif
       modifySessionDynFlags enableComp
       -- We need to update the DynFlags of the ModSummaries as well.
@@ -191,8 +209,15 @@ parse args = withGhc args $ \modules_ -> withTempOutputDir $ do
     -- Since GHC 8.6, plugins are initialized on a per module basis
     loadModPlugins modsum = do
       hsc_env <- getSession
+
+-- See https://github.com/ghc/ghc/commit/ecfd0278cb811c93853c176fe5df60222d1a8fb5
+#if __GLASGOW_HASKELL__ < 902
       dynflags' <- liftIO (initializePlugins hsc_env (GHC.ms_hspp_opts modsum))
       return $ modsum { ms_hspp_opts = dynflags' }
+#else
+      dynflags' <- liftIO (hsc_dflags <$> initializePlugins hsc_env)
+      return $ modsum { ms_hspp_opts = dynflags' }
+#endif
 #else
     loadModPlugins = return
 #endif
@@ -242,8 +267,10 @@ docStringsFromModule mod = map (fmap (toLocated . fmap unpackHDS)) docs
     exports = [(Nothing, L loc doc) | L loc (IEDoc doc) <- concat (hsmodExports source)]
 #elif __GLASGOW_HASKELL__ < 805
     exports = [(Nothing, L loc doc) | L loc (IEDoc doc) <- maybe [] unLoc (hsmodExports source)]
-#else
+#elif __GLASGOW_HASKELL__ < 902
     exports = [(Nothing, L loc doc) | L loc (IEDoc _ doc) <- maybe [] unLoc (hsmodExports source)]
+#else
+    exports = [(Nothing, L (locA loc) doc) | L loc (IEDoc _ doc) <- maybe [] unLoc (hsmodExports source)]
 #endif
     decls   = extractDocStrings (hsmodDecls source)
 
@@ -299,14 +326,21 @@ extractDocStrings = everythingBut (++) (([], False) `mkQ` fromLHsDecl
       -- attached to HsDecl instead.
 #if __GLASGOW_HASKELL__ < 805
       DocD x -> select (fromDocDecl loc x)
-#else
+#elif __GLASGOW_HASKELL__ < 902
       DocD _ x -> select (fromDocDecl loc x)
+#else
+      DocD _ x -> select (fromDocDecl (locA loc) x)
 #endif
 
       _ -> (extractDocStrings decl, True)
 
+#if __GLASGOW_HASKELL__ < 902
     fromLDocDecl :: Selector LDocDecl
     fromLDocDecl (L loc x) = select (fromDocDecl loc x)
+#else
+    fromLDocDecl :: Selector (LDocDecl GhcPs)
+    fromLDocDecl (L loc x) = select (fromDocDecl (locA loc) x)
+#endif
 
     fromLHsDocString :: Selector LHsDocString
     fromLHsDocString x = select (Nothing, x)

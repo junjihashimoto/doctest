@@ -7,7 +7,7 @@ cabal-version: 1.12
 -- hash: a7c307d4c3548326994e6fb1f8f2e96fd825cb9ba3cf2ed3cc6ea352a2554436
 
 name:           doctest
-version:        0.18.1
+version:        0.18.2
 synopsis:       Test interactive Haskell examples
 description:    The doctest program checks examples in source code comments.  It is modeled
                 after doctest for Python (<https://docs.python.org/3/library/doctest.html>).
@@ -33,6 +33,7 @@ tested-with:
   , GHC == 8.8.4
   , GHC == 8.10.4
   , GHC == 9.0.1
+  , GHC == 9.2.0
 extra-source-files:
     example/example.cabal
     example/src/Example.hs
